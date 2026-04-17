@@ -38,6 +38,7 @@ $queries = [
         begintijd DATETIME DEFAULT CURRENT_TIMESTAMP,
         eindtijd DATETIME NULL,
         opmerking TEXT NULL,
+        password_hash VARCHAR(255) NULL,
         gesloten TINYINT(1) DEFAULT 0,
         FOREIGN KEY (prijslijst_id) REFERENCES prijslijsten(id)
     )",

@@ -508,6 +508,65 @@ nav a.nav-active { color: var(--accent); }
   box-shadow: var(--shadow);
 }
 .modal-wide { max-width: 600px; }
+.modal-xl   { max-width: 860px; }
+
+/* ── DIRECTE VERKOOP MODAL ──────────────────────────────────── */
+.direct-sale-layout {
+  display: grid;
+  grid-template-columns: 1fr 270px;
+  gap: 0 20px;
+  min-height: 360px;
+}
+.ds-drinks {
+  overflow-y: auto;
+  max-height: 55vh;
+  padding-right: 4px;
+}
+.ds-order {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
+}
+.ds-order-label {
+  font-family: var(--font-head);
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.ds-order-items {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 28vh;
+  min-height: 60px;
+}
+.ds-order-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  font-size: 14px;
+}
+.ds-order-item-info { flex: 1; min-width: 0; }
+.ds-order-item-naam { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-order-item-prijs { font-size: 12px; color: var(--text-dim); }
+.ds-totaal {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: right;
+  padding: 10px 0;
+  border-top: 2px solid var(--accent);
+  margin: 8px 0 14px;
+}
+@media (max-width: 640px) {
+  .direct-sale-layout { grid-template-columns: 1fr; }
+  .ds-drinks { max-height: 40vh; }
+  .ds-order { border-left: none; border-top: 1px solid var(--border); padding-left: 0; padding-top: 16px; margin-top: 16px; }
+  .ds-order-items { max-height: 20vh; }
+}
 .modal-box h3 {
   font-family: var(--font-head);
   font-size: 22px;

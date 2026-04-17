@@ -16,28 +16,70 @@ function jsonErr($msg, int $code = 400) {
     exit;
 }
 
-// Auth guard — all API calls require a valid session
-if (!getUser()) jsonErr('Niet ingelogd.', 401);
+// Returns true if the caller may access the active shift's POS data:
+// either a write-role user, or the session was unlocked for the current shift.
+function hasShiftAuth(): bool {
+    global $pdo;
+    if (hasRole('write')) return true;
+    $shift = $pdo->query("SELECT id FROM shifts WHERE gesloten = 0 LIMIT 1")->fetch();
+    if (!$shift) return false;
+    return (int)($_SESSION['shift_auth'] ?? 0) === (int)$shift['id'];
+}
 
-// Role guards
+// Actions that require write role
 $writeActions = ['save_drank', 'delete_drank', 'delete_shift'];
+// Actions that require read role (implies login)
 $readActions  = ['get_alle_dranken', 'get_shifts_lijst', 'get_shift_rapport'];
+// Actions that require shift auth (write role OR session password)
+$shiftActions = ['close_shift', 'open_tab', 'get_tab', 'add_to_tab', 'remove_tab_regel',
+                 'update_regel_aantal', 'betaal_tab', 'delete_tab', 'get_dranken', 'direct_sale'];
 
-if (in_array($action, $writeActions) && !hasRole('write')) jsonErr('Geen schrijfrechten.', 403);
-if (in_array($action, $readActions)  && !hasRole('read'))  jsonErr('Geen leesrechten.', 403);
+if (in_array($action, $writeActions) && !hasRole('write'))   jsonErr('Geen schrijfrechten.', 403);
+if (in_array($action, $readActions)  && !hasRole('read'))    jsonErr('Geen leesrechten.', 403);
+if (in_array($action, $shiftActions) && !hasShiftAuth())     jsonErr('Geen toegang tot shift.', 403);
 
 switch ($action) {
 
     // ── SHIFT ──────────────────────────────────────────────────────────────
     case 'start_shift':
-        $naam = trim($_POST['verantwoordelijke'] ?? '');
-        $lijst_id = (int)($_POST['prijslijst_id'] ?? 1);
-        if (!$naam) jsonErr('Naam verantwoordelijke is verplicht.');
         $open = $pdo->query("SELECT id FROM shifts WHERE gesloten = 0 LIMIT 1")->fetch();
         if ($open) jsonErr('Er is al een open shift (ID ' . $open['id'] . '). Sluit deze eerst.');
-        $stmt = $pdo->prepare("INSERT INTO shifts (verantwoordelijke, prijslijst_id) VALUES (?, ?)");
-        $stmt->execute([$naam, $lijst_id]);
-        jsonOk(['shift_id' => $pdo->lastInsertId()]);
+
+        $user = getUser();
+        $lijst_id = (int)($_POST['prijslijst_id'] ?? 1);
+
+        if ($user) {
+            $naam = $user['name'];
+            $hash = null;
+        } else {
+            $voornaam   = trim($_POST['voornaam']   ?? '');
+            $achternaam = trim($_POST['achternaam'] ?? '');
+            $password   = $_POST['password'] ?? '';
+            if (!$voornaam || !$achternaam) jsonErr('Voornaam en achternaam zijn verplicht.');
+            if (strlen($password) < 4) jsonErr('Wachtwoord moet minstens 4 tekens bevatten.');
+            $naam = "$voornaam $achternaam";
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+        }
+
+        $pdo->prepare("INSERT INTO shifts (verantwoordelijke, prijslijst_id, password_hash) VALUES (?, ?, ?)")
+            ->execute([$naam, $lijst_id, $hash]);
+        $shift_id = (int)$pdo->lastInsertId();
+        $_SESSION['shift_auth'] = $shift_id;
+        jsonOk(['shift_id' => $shift_id]);
+
+    case 'unlock_shift':
+        $shift_id = (int)($_POST['shift_id'] ?? 0);
+        $password  = $_POST['password'] ?? '';
+        if (!$shift_id) jsonErr('Geen shift ID opgegeven.');
+        $shift = $pdo->prepare("SELECT id, password_hash FROM shifts WHERE id = ? AND gesloten = 0");
+        $shift->execute([$shift_id]);
+        $shift = $shift->fetch();
+        if (!$shift) jsonErr('Shift niet gevonden of al gesloten.');
+        if (!$shift['password_hash'] || !password_verify($password, $shift['password_hash'])) {
+            jsonErr('Incorrect wachtwoord.');
+        }
+        $_SESSION['shift_auth'] = (int)$shift['id'];
+        jsonOk();
 
     case 'get_active_shift':
         $shift = $pdo->query(
@@ -46,6 +88,12 @@ switch ($action) {
              WHERE s.gesloten = 0 ORDER BY s.begintijd DESC LIMIT 1"
         )->fetch();
         if (!$shift) jsonOk(['shift' => null]);
+
+        // Return only enough for the unlock screen if caller has no access
+        if (!hasShiftAuth()) {
+            jsonOk(['shift' => ['id' => (int)$shift['id'], 'needs_password' => true]]);
+        }
+
         $tabs = $pdo->prepare(
             "SELECT t.*, COALESCE(SUM(r.prijs * r.aantal),0) AS subtotaal,
                     COUNT(r.id) AS aantal_regels
@@ -55,6 +103,7 @@ switch ($action) {
         );
         $tabs->execute([$shift['id']]);
         $shift['tabs'] = $tabs->fetchAll();
+        unset($shift['password_hash']); // never expose the hash
         jsonOk(['shift' => $shift]);
 
     case 'close_shift':
@@ -66,7 +115,52 @@ switch ($action) {
         if ($open_tabs->fetchColumn() > 0) jsonErr('Er zijn nog onbetaalde tabs. Verwerk deze eerst.');
         $pdo->prepare("UPDATE shifts SET gesloten = 1, eindtijd = NOW(), opmerking = ? WHERE id = ?")
             ->execute([$opmerking ?: null, $shift_id]);
+        unset($_SESSION['shift_auth']);
         jsonOk();
+
+    case 'direct_sale':
+        $shift_id    = (int)($_POST['shift_id'] ?? 0);
+        $betaalwijze = $_POST['betaalwijze'] ?? '';
+        $items       = json_decode($_POST['items'] ?? '[]', true);
+        if (!$shift_id) jsonErr('Geen shift ID.');
+        if (!in_array($betaalwijze, ['cash', 'payconiq'])) jsonErr('Ongeldige betaalwijze.');
+        if (empty($items) || !is_array($items)) jsonErr('Voeg minstens één drank toe.');
+
+        $shift = $pdo->prepare("SELECT id, prijslijst_id FROM shifts WHERE id = ? AND gesloten = 0");
+        $shift->execute([$shift_id]);
+        $shift = $shift->fetch();
+        if (!$shift) jsonErr('Shift niet gevonden of al gesloten.');
+
+        $pdo->prepare("INSERT INTO tabs (shift_id, naam) VALUES (?, 'Directe verkoop')")
+            ->execute([$shift_id]);
+        $tab_id = (int)$pdo->lastInsertId();
+
+        $totaal = 0.0;
+        foreach ($items as $item) {
+            $drank_id = (int)($item['drank_id'] ?? 0);
+            $aantal   = max(1, (int)($item['aantal'] ?? 1));
+            if (!$drank_id) continue;
+            $drank = $pdo->prepare(
+                "SELECT d.naam, p.prijs FROM dranken d
+                 JOIN prijzen p ON p.drank_id = d.id AND p.prijslijst_id = ?
+                 WHERE d.id = ? AND d.actief = 1"
+            );
+            $drank->execute([$shift['prijslijst_id'], $drank_id]);
+            $drank = $drank->fetch();
+            if (!$drank) continue;
+            $pdo->prepare("INSERT INTO tab_regels (tab_id, drank_id, drank_naam, prijs, aantal) VALUES (?,?,?,?,?)")
+                ->execute([$tab_id, $drank_id, $drank['naam'], $drank['prijs'], $aantal]);
+            $totaal += $drank['prijs'] * $aantal;
+        }
+
+        if ($totaal == 0) {
+            $pdo->prepare("DELETE FROM tabs WHERE id = ?")->execute([$tab_id]);
+            jsonErr('Geen geldige dranken opgegeven.');
+        }
+
+        $pdo->prepare("UPDATE tabs SET betaald=1, gesloten=NOW(), betaalwijze=?, totaal=? WHERE id=?")
+            ->execute([$betaalwijze, $totaal, $tab_id]);
+        jsonOk(['totaal' => $totaal]);
 
     case 'delete_shift':
         $shift_id = (int)($_POST['shift_id'] ?? 0);
@@ -231,6 +325,7 @@ switch ($action) {
         $shift->execute([$shift_id]);
         $shift = $shift->fetch();
         if (!$shift) jsonErr('Shift niet gevonden.');
+        unset($shift['password_hash']);
 
         $verkoop = $pdo->prepare(
             "SELECT r.drank_naam, SUM(r.aantal) AS totaal_stuks,

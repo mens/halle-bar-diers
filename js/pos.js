@@ -4,6 +4,7 @@ let activeShift   = null;
 let activeTabId   = null;
 let drinkData     = [];
 let paymentTabId  = null;
+let pendingShiftId = null; // shift ID shown on the unlock screen
 
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -13,8 +14,13 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadActiveShift() {
   const res = await api('get_active_shift', {}, 'GET');
   if (res.ok && res.shift) {
-    activeShift = res.shift;
-    showPosScreen();
+    if (res.shift.needs_password) {
+      pendingShiftId = res.shift.id;
+      showUnlockScreen();
+    } else {
+      activeShift = res.shift;
+      showPosScreen();
+    }
   } else {
     showStartScreen();
   }
@@ -22,13 +28,41 @@ async function loadActiveShift() {
 
 // ── SHIFT BEHEER ──────────────────────────────────────────────
 async function startShift() {
-  const naam = document.getElementById('inp-verantwoordelijke').value.trim();
   const lijst = document.querySelector('input[name="prijslijst"]:checked')?.value || '1';
-  if (!naam) { toast('Voer de naam van de verantwoordelijke in.', 'error'); return; }
-  const res = await apiPost({ action: 'start_shift', verantwoordelijke: naam, prijslijst_id: lijst });
+  const data  = { action: 'start_shift', prijslijst_id: lijst };
+
+  // Guest mode: name + password fields are present in the DOM
+  const voornaamEl = document.getElementById('inp-voornaam');
+  if (voornaamEl) {
+    data.voornaam   = voornaamEl.value.trim();
+    data.achternaam = document.getElementById('inp-achternaam').value.trim();
+    data.password   = document.getElementById('inp-shift-password').value;
+    if (!data.voornaam || !data.achternaam) {
+      toast('Voer voornaam en achternaam in.', 'error');
+      return;
+    }
+    if (!data.password) {
+      toast('Kies een wachtwoord voor de shift.', 'error');
+      return;
+    }
+  }
+
+  const res = await apiPost(data);
   if (res.ok) {
     toast('Shift gestart!', 'success');
     loadActiveShift();
+  } else {
+    toast(res.error, 'error');
+  }
+}
+
+async function unlockShift() {
+  const password = document.getElementById('inp-unlock-password').value;
+  if (!password) { toast('Voer het wachtwoord in.', 'error'); return; }
+  const res = await apiPost({ action: 'unlock_shift', shift_id: pendingShiftId, password });
+  if (res.ok) {
+    pendingShiftId = null;
+    await loadActiveShift();
   } else {
     toast(res.error, 'error');
   }
@@ -56,13 +90,24 @@ function openCloseShiftModal() {
 // ── SCREEN SWITCHING ──────────────────────────────────────────
 function showStartScreen() {
   document.getElementById('screen-no-shift').classList.remove('hidden');
+  document.getElementById('screen-unlock-shift').classList.add('hidden');
   document.getElementById('screen-pos').classList.add('hidden');
   document.getElementById('shift-status').textContent = 'Geen actieve shift';
   document.getElementById('shift-status').className = 'shift-badge shift-none';
 }
 
+function showUnlockScreen() {
+  document.getElementById('screen-no-shift').classList.add('hidden');
+  document.getElementById('screen-unlock-shift').classList.remove('hidden');
+  document.getElementById('screen-pos').classList.add('hidden');
+  document.getElementById('shift-status').textContent = 'Shift vergrendeld 🔒';
+  document.getElementById('shift-status').className = 'shift-badge shift-none';
+  setTimeout(() => document.getElementById('inp-unlock-password')?.focus(), 50);
+}
+
 function showPosScreen() {
   document.getElementById('screen-no-shift').classList.add('hidden');
+  document.getElementById('screen-unlock-shift').classList.add('hidden');
   document.getElementById('screen-pos').classList.remove('hidden');
   const badge = document.getElementById('shift-status');
   badge.textContent = `${activeShift.verantwoordelijke} — ${activeShift.prijslijst_naam}`;
@@ -88,7 +133,7 @@ function renderTabs(tabs) {
 
 async function refreshTabs() {
   const res = await api('get_active_shift', {}, 'GET');
-  if (res.ok && res.shift) {
+  if (res.ok && res.shift && !res.shift.needs_password) {
     activeShift = res.shift;
     renderTabs(res.shift.tabs || []);
   }
@@ -228,6 +273,104 @@ async function addToTab(drinkId) {
   }
 }
 
+// ── DIRECTE VERKOOP ───────────────────────────────────────────
+let directSaleCart = {}; // drank_id → {naam, prijs, aantal}
+
+function openDirectSaleModal() {
+  directSaleCart = {};
+  renderDirectSaleDrinks();
+  renderDirectSaleCart();
+  openModal('modal-direct-sale');
+}
+
+function renderDirectSaleDrinks() {
+  const grid = document.getElementById('ds-drinks-grid');
+  const cats = {};
+  drinkData.forEach(d => {
+    const c = d.categorie || 'Overig';
+    if (!cats[c]) cats[c] = [];
+    cats[c].push(d);
+  });
+  grid.innerHTML = Object.entries(cats).map(([cat, items]) => `
+    <div class="drinks-categorie">
+      <div class="drinks-cat-label">${esc(cat)}</div>
+      <div class="drinks-buttons">
+        ${items.map(d => `
+          <button class="drink-btn" onclick="dsAddDrink(${d.id})">
+            <span class="drink-btn-naam">${esc(d.naam)}</span>
+            <span class="drink-btn-prijs">€ ${parseFloat(d.prijs).toFixed(2)}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function dsAddDrink(id) {
+  const drink = drinkData.find(d => d.id === id);
+  if (!drink) return;
+  if (directSaleCart[id]) {
+    directSaleCart[id].aantal++;
+  } else {
+    directSaleCart[id] = { naam: drink.naam, prijs: parseFloat(drink.prijs), aantal: 1 };
+  }
+  renderDirectSaleCart();
+}
+
+function dsUpdateQuantity(id, delta) {
+  if (!directSaleCart[id]) return;
+  directSaleCart[id].aantal += delta;
+  if (directSaleCart[id].aantal <= 0) delete directSaleCart[id];
+  renderDirectSaleCart();
+}
+
+function renderDirectSaleCart() {
+  const items = Object.entries(directSaleCart);
+  const totaal = items.reduce((sum, [, i]) => sum + i.prijs * i.aantal, 0);
+
+  document.getElementById('ds-order-items').innerHTML = items.length
+    ? items.map(([id, item]) => `
+        <div class="ds-order-item">
+          <div class="ds-order-item-info">
+            <div class="ds-order-item-naam">${esc(item.naam)}</div>
+            <div class="ds-order-item-prijs">€ ${item.prijs.toFixed(2)} × ${item.aantal}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+            <span style="font-weight:600;min-width:44px;text-align:right;">€ ${(item.prijs * item.aantal).toFixed(2)}</span>
+            <div class="tab-regel-controls">
+              <button class="qty-btn" onclick="dsUpdateQuantity(${id}, -1)">−</button>
+              <span class="qty-num">${item.aantal}</span>
+              <button class="qty-btn" onclick="dsUpdateQuantity(${id}, 1)">+</button>
+            </div>
+          </div>
+        </div>
+      `).join('')
+    : '<p style="color:var(--text-dim);font-size:14px;padding:16px 0;text-align:center;">Voeg dranken toe ←</p>';
+
+  document.getElementById('ds-totaal').textContent = `€ ${totaal.toFixed(2)}`;
+  document.getElementById('btn-ds-pay').disabled = items.length === 0;
+}
+
+async function confirmDirectSale() {
+  const items = Object.entries(directSaleCart);
+  if (!items.length) return;
+  const betaalwijze = document.querySelector('input[name="ds-betaalwijze"]:checked')?.value;
+  const payload = items.map(([id, item]) => ({ drank_id: parseInt(id), aantal: item.aantal }));
+  const res = await apiPost({
+    action: 'direct_sale',
+    shift_id: activeShift.id,
+    betaalwijze,
+    items: JSON.stringify(payload)
+  });
+  if (res.ok) {
+    closeModal('modal-direct-sale');
+    const label = betaalwijze === 'cash' ? 'cash 💵' : 'Payconiq 📱';
+    toast(`Verkoop € ${parseFloat(res.totaal).toFixed(2)} — ${label}`, 'success');
+  } else {
+    toast(res.error, 'error');
+  }
+}
+
 // ── LINE ITEMS ────────────────────────────────────────────────
 async function deleteLineItem(lineItemId, tabId) {
   const res = await apiPost({ action: 'remove_tab_regel', regel_id: lineItemId, tab_id: tabId });
@@ -319,6 +462,7 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     if (!document.getElementById('modal-new-tab').classList.contains('hidden')) createTab();
+    if (!document.getElementById('screen-unlock-shift').classList.contains('hidden')) unlockShift();
   }
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal:not(.hidden)').forEach(m => m.classList.add('hidden'));
