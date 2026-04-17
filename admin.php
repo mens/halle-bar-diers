@@ -24,7 +24,7 @@
 <div class="admin-wrap">
   <div class="admin-header">
     <h1>Drankenbeheer</h1>
-    <button class="btn-primary" onclick="openDrankModal()">+ Nieuwe drank</button>
+    <button class="btn-primary" onclick="openDrinkModal()">+ Nieuwe drank</button>
   </div>
 
   <div class="admin-table-wrap">
@@ -91,7 +91,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-drank')">Annuleer</button>
-      <button class="btn-primary" onclick="saveDrank()">Opslaan</button>
+      <button class="btn-primary" onclick="saveDrink()">Opslaan</button>
     </div>
   </div>
 </div>
@@ -100,7 +100,7 @@
 
 <script>
 // Laad alle dranken
-async function laadDranken() {
+async function loadDrinks() {
   const res = await api('get_alle_dranken', {}, 'GET');
   const tbody = document.getElementById('dranken-tbody');
   if (!res.ok || !res.dranken.length) {
@@ -116,14 +116,14 @@ async function laadDranken() {
       <td class="price-cell">${d.prijs_event   ? '€ ' + parseFloat(d.prijs_event).toFixed(2)   : '—'}</td>
       <td><span class="badge ${d.actief ? 'badge-green' : 'badge-red'}">${d.actief ? 'Ja' : 'Nee'}</span></td>
       <td class="action-cell">
-        <button class="btn-sm btn-secondary" onclick="openDrankModal(${JSON.stringify(d).replace(/"/g,'&quot;')})">✏️ Bewerken</button>
-        ${d.actief ? `<button class="btn-sm btn-danger" onclick="deactiveerDrank(${d.id})">🚫 Deactiveer</button>` : ''}
+        <button class="btn-sm btn-secondary" onclick="openDrinkModal(${JSON.stringify(d).replace(/"/g,'&quot;')})">✏️ Bewerken</button>
+        ${d.actief ? `<button class="btn-sm btn-danger" onclick="deactivateDrink(${d.id})">🚫 Deactiveer</button>` : ''}
       </td>
     </tr>
   `).join('');
 }
 
-function openDrankModal(d = null) {
+function openDrinkModal(d = null) {
   document.getElementById('drank-id').value      = d ? d.id : 0;
   document.getElementById('drank-naam').value     = d ? d.naam : '';
   document.getElementById('drank-categorie').value= d ? d.categorie : '';
@@ -135,7 +135,7 @@ function openDrankModal(d = null) {
   openModal('modal-drank');
 }
 
-async function saveDrank() {
+async function saveDrink() {
   const data = {
     action:     'save_drank',
     id:         document.getElementById('drank-id').value,
@@ -150,16 +150,16 @@ async function saveDrank() {
   if (res.ok) {
     closeModal('modal-drank');
     toast('Drank opgeslagen ✓', 'success');
-    laadDranken();
+    loadDrinks();
   } else {
     toast(res.error, 'error');
   }
 }
 
-async function deactiveerDrank(id) {
+async function deactivateDrink(id) {
   if (!confirm('Drank deactiveren?')) return;
   const res = await apiPost({ action: 'delete_drank', id });
-  if (res.ok) { toast('Drank gedeactiveerd', 'success'); laadDranken(); }
+  if (res.ok) { toast('Drank gedeactiveerd', 'success'); loadDrinks(); }
 }
 
 // Shared helpers (duplicated for standalone page)
@@ -186,7 +186,7 @@ async function apiPost(data) {
   return api('', data, 'POST');
 }
 
-laadDranken();
+loadDrinks();
 </script>
 </body>
 </html>

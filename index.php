@@ -117,7 +117,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-betaling')">Annuleer</button>
-      <button class="btn-primary btn-xl" onclick="bevestigBetaling()">✓ Betaling Bevestigen</button>
+      <button class="btn-primary btn-xl" onclick="confirmPayment()">✓ Betaling Bevestigen</button>
     </div>
   </div>
 </div>
@@ -130,7 +130,7 @@
     <textarea id="inp-opmerking" rows="4" placeholder="Opmerkingen voor deze shift..."></textarea>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-close-shift')">Annuleer</button>
-      <button class="btn-danger" onclick="sluitShift()">Shift Sluiten</button>
+      <button class="btn-danger" onclick="closeShift()">Shift Sluiten</button>
     </div>
   </div>
 </div>

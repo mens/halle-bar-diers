@@ -33,7 +33,7 @@
 <div id="toast-container"></div>
 
 <script>
-async function laadShifts() {
+async function loadShifts() {
   const res = await api('get_shifts_lijst', {}, 'GET');
   const cont = document.getElementById('shifts-lijst');
   if (!res.shifts || !res.shifts.length) {
@@ -41,7 +41,7 @@ async function laadShifts() {
     return;
   }
   cont.innerHTML = res.shifts.map(s => `
-    <div class="shift-row ${s.gesloten ? '' : 'shift-open-row'}" onclick="laadRapport(${s.id})">
+    <div class="shift-row ${s.gesloten ? '' : 'shift-open-row'}" onclick="loadReport(${s.id})">
       <div class="shift-row-top">
         <strong>${esc(s.verantwoordelijke)}</strong>
         <span class="badge ${s.gesloten ? 'badge-gray' : 'badge-green'}">${s.gesloten ? 'Gesloten' : 'Open'}</span>
@@ -56,7 +56,7 @@ async function laadShifts() {
   `).join('');
 }
 
-async function laadRapport(shift_id) {
+async function loadReport(shift_id) {
   document.getElementById('rapport-detail').innerHTML = '<div class="empty-state"><p>Laden...</p></div>';
   const res = await api(`get_shift_rapport&shift_id=${shift_id}`, {}, 'GET');
   if (!res.ok) { toast(res.error, 'error'); return; }
@@ -138,7 +138,7 @@ async function api(action, params={}, method='POST') {
   return r.json();
 }
 
-laadShifts();
+loadShifts();
 </script>
 </body>
 </html>

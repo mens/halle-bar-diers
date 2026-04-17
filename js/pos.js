@@ -1,22 +1,22 @@
-// pos.js — Kantine POS frontend logica
+// pos.js — Kantine POS frontend
 
 let activeShift   = null;
 let activeTabId   = null;
-let drankData     = [];
-let betalingTabId = null;
+let drinkData     = [];
+let paymentTabId  = null;
 
-// ── INITIALISATIE ─────────────────────────────────────────────
+// ── INIT ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  laadActieveShift();
+  loadActiveShift();
 });
 
-async function laadActieveShift() {
+async function loadActiveShift() {
   const res = await api('get_active_shift', {}, 'GET');
   if (res.ok && res.shift) {
     activeShift = res.shift;
-    toonPosScherm();
+    showPosScreen();
   } else {
-    toonStartScherm();
+    showStartScreen();
   }
 }
 
@@ -28,13 +28,13 @@ async function startShift() {
   const res = await apiPost({ action: 'start_shift', verantwoordelijke: naam, prijslijst_id: lijst });
   if (res.ok) {
     toast('Shift gestart!', 'success');
-    laadActieveShift();
+    loadActiveShift();
   } else {
     toast(res.error, 'error');
   }
 }
 
-async function sluitShift() {
+async function closeShift() {
   const opmerking = document.getElementById('inp-opmerking').value.trim();
   const res = await apiPost({ action: 'close_shift', shift_id: activeShift.id, opmerking });
   if (res.ok) {
@@ -53,22 +53,22 @@ function openCloseShiftModal() {
   openModal('modal-close-shift');
 }
 
-// ── SCHERM WISSELEN ───────────────────────────────────────────
-function toonStartScherm() {
+// ── SCREEN SWITCHING ──────────────────────────────────────────
+function showStartScreen() {
   document.getElementById('screen-no-shift').classList.remove('hidden');
   document.getElementById('screen-pos').classList.add('hidden');
   document.getElementById('shift-status').textContent = 'Geen actieve shift';
   document.getElementById('shift-status').className = 'shift-badge shift-none';
 }
 
-function toonPosScherm() {
+function showPosScreen() {
   document.getElementById('screen-no-shift').classList.add('hidden');
   document.getElementById('screen-pos').classList.remove('hidden');
   const badge = document.getElementById('shift-status');
   badge.textContent = `${activeShift.verantwoordelijke} — ${activeShift.prijslijst_naam}`;
   badge.className = 'shift-badge shift-active';
   renderTabs(activeShift.tabs || []);
-  laadDranken();
+  loadDrinks();
 }
 
 // ── TABS RENDER ───────────────────────────────────────────────
@@ -97,7 +97,6 @@ async function refreshTabs() {
 // ── TAB SELECTEREN ────────────────────────────────────────────
 async function selectTab(tabId) {
   activeTabId = tabId;
-  // Update visuele selectie
   document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('tab-selected'));
   event.currentTarget?.classList.add('tab-selected');
   await renderTabDetail(tabId);
@@ -114,8 +113,8 @@ async function renderTabDetail(tabId) {
     <div class="tab-detail-header">
       <span class="tab-detail-naam">${esc(tab.naam)}</span>
       <div class="tab-detail-actions">
-        <button class="btn-sm btn-danger" onclick="verwijderTab(${tab.id})">🗑 Verwijder</button>
-        <button class="btn-sm btn-green" onclick="openBetalingModal(${tab.id})">💳 Betalen</button>
+        <button class="btn-sm btn-danger" onclick="deleteTab(${tab.id})">🗑 Verwijder</button>
+        <button class="btn-sm btn-green" onclick="openPaymentModal(${tab.id})">💳 Betalen</button>
       </div>
     </div>
     ${tab.regels.length ? `
@@ -127,12 +126,12 @@ async function renderTabDetail(tabId) {
             <div class="tab-regel-prijs">€ ${parseFloat(r.prijs).toFixed(2)} / stuk</div>
           </div>
           <div class="tab-regel-controls">
-            <button class="qty-btn" onclick="updateAantal(${r.id}, ${tab.id}, ${r.aantal - 1})">−</button>
+            <button class="qty-btn" onclick="updateQuantity(${r.id}, ${tab.id}, ${r.aantal - 1})">−</button>
             <span class="qty-num">${r.aantal}</span>
-            <button class="qty-btn" onclick="updateAantal(${r.id}, ${tab.id}, ${r.aantal + 1})">+</button>
+            <button class="qty-btn" onclick="updateQuantity(${r.id}, ${tab.id}, ${r.aantal + 1})">+</button>
           </div>
           <div class="regel-subtotaal">€ ${(r.prijs * r.aantal).toFixed(2)}</div>
-          <button class="btn-del-regel" onclick="verwijderRegel(${r.id}, ${tab.id})" title="Verwijderen">✕</button>
+          <button class="btn-del-regel" onclick="deleteLineItem(${r.id}, ${tab.id})" title="Verwijderen">✕</button>
         </div>
       `).join('')}
     </div>` : `<div style="color:var(--text-dim);padding:20px;text-align:center;">Tab is leeg. Voeg dranken toe →</div>`}
@@ -158,7 +157,6 @@ async function createTab() {
     closeModal('modal-new-tab');
     await refreshTabs();
     await selectTab(res.tab_id);
-    // Selecteer visueel na refresh
     document.querySelectorAll('.tab-item').forEach(el => {
       if (el.onclick?.toString().includes(res.tab_id)) el.classList.add('tab-selected');
     });
@@ -167,7 +165,7 @@ async function createTab() {
   }
 }
 
-async function verwijderTab(tabId) {
+async function deleteTab(tabId) {
   if (!confirm('Tab verwijderen met alle bestellingen?')) return;
   const res = await apiPost({ action: 'delete_tab', tab_id: tabId });
   if (res.ok) {
@@ -177,20 +175,19 @@ async function verwijderTab(tabId) {
   }
 }
 
-// ── DRANKEN TOEVOEGEN ─────────────────────────────────────────
-async function laadDranken() {
+// ── DRINKS ────────────────────────────────────────────────────
+async function loadDrinks() {
   const res = await api(`get_dranken&prijslijst_id=${activeShift.prijslijst_id}`, {}, 'GET');
   if (!res.ok) return;
-  drankData = res.dranken;
-  renderDranken(drankData);
+  drinkData = res.dranken;
+  renderDrinks(drinkData);
   document.getElementById('prijslijst-badge').textContent = activeShift.prijslijst_naam;
 }
 
-function renderDranken(dranken) {
+function renderDrinks(drinks) {
   const grid = document.getElementById('drinks-grid');
-  // Groepeer per categorie
   const cats = {};
-  dranken.forEach(d => {
+  drinks.forEach(d => {
     const c = d.categorie || 'Overig';
     if (!cats[c]) cats[c] = [];
     cats[c].push(d);
@@ -200,7 +197,7 @@ function renderDranken(dranken) {
       <div class="drinks-cat-label">${esc(cat)}</div>
       <div class="drinks-buttons">
         ${items.map(d => `
-          <button class="drink-btn" onclick="voegToeAanTab(${d.id})" ${!activeTabId ? 'title="Selecteer eerst een tab"' : ''}>
+          <button class="drink-btn" onclick="addToTab(${d.id})" ${!activeTabId ? 'title="Selecteer eerst een tab"' : ''}>
             <span class="drink-btn-naam">${esc(d.naam)}</span>
             <span class="drink-btn-prijs">€ ${parseFloat(d.prijs).toFixed(2)}</span>
           </button>
@@ -210,19 +207,18 @@ function renderDranken(dranken) {
   `).join('');
 }
 
-async function voegToeAanTab(drankId) {
+async function addToTab(drinkId) {
   if (!activeTabId) {
     toast('Selecteer eerst een tab!', 'error');
     return;
   }
-  const res = await apiPost({ action: 'add_to_tab', tab_id: activeTabId, drank_id: drankId, aantal: 1 });
+  const res = await apiPost({ action: 'add_to_tab', tab_id: activeTabId, drank_id: drinkId, aantal: 1 });
   if (res.ok) {
     await renderTabDetail(activeTabId);
     await refreshTabs();
-    // Flash effect op drank knop
     const btns = document.querySelectorAll('.drink-btn');
     btns.forEach(btn => {
-      if (btn.onclick?.toString().includes(drankId)) {
+      if (btn.onclick?.toString().includes(drinkId)) {
         btn.style.borderColor = 'var(--green)';
         setTimeout(() => btn.style.borderColor = '', 300);
       }
@@ -232,26 +228,26 @@ async function voegToeAanTab(drankId) {
   }
 }
 
-// ── REGEL BEHEER ──────────────────────────────────────────────
-async function verwijderRegel(regelId, tabId) {
-  const res = await apiPost({ action: 'remove_tab_regel', regel_id: regelId, tab_id: tabId });
+// ── LINE ITEMS ────────────────────────────────────────────────
+async function deleteLineItem(lineItemId, tabId) {
+  const res = await apiPost({ action: 'remove_tab_regel', regel_id: lineItemId, tab_id: tabId });
   if (res.ok) {
     await renderTabDetail(tabId);
     await refreshTabs();
   }
 }
 
-async function updateAantal(regelId, tabId, nieuwAantal) {
-  const res = await apiPost({ action: 'update_regel_aantal', regel_id: regelId, tab_id: tabId, aantal: nieuwAantal });
+async function updateQuantity(lineItemId, tabId, newQuantity) {
+  const res = await apiPost({ action: 'update_regel_aantal', regel_id: lineItemId, tab_id: tabId, aantal: newQuantity });
   if (res.ok) {
     await renderTabDetail(tabId);
     await refreshTabs();
   }
 }
 
-// ── BETALING ──────────────────────────────────────────────────
-async function openBetalingModal(tabId) {
-  betalingTabId = tabId;
+// ── PAYMENT ───────────────────────────────────────────────────
+async function openPaymentModal(tabId) {
+  paymentTabId = tabId;
   const res = await api(`get_tab&tab_id=${tabId}`, {}, 'GET');
   if (!res.ok) return;
   const tab = res.tab;
@@ -260,15 +256,14 @@ async function openBetalingModal(tabId) {
   overzicht.innerHTML = tab.regels.map(r =>
     `<div class="regel"><span>${esc(r.drank_naam)} × ${r.aantal}</span><span>€ ${(r.prijs * r.aantal).toFixed(2)}</span></div>`
   ).join('') + `<div class="regel regel-total"><span>TOTAAL</span><span>€ ${totaal.toFixed(2)}</span></div>`;
-  // Selecteer standaard cash
   document.querySelector('input[name="betaalwijze"][value="cash"]').checked = true;
   openModal('modal-betaling');
 }
 
-async function bevestigBetaling() {
+async function confirmPayment() {
   const betaalwijze = document.querySelector('input[name="betaalwijze"]:checked')?.value;
   if (!betaalwijze) { toast('Kies een betaalwijze.', 'error'); return; }
-  const res = await apiPost({ action: 'betaal_tab', tab_id: betalingTabId, betaalwijze });
+  const res = await apiPost({ action: 'betaal_tab', tab_id: paymentTabId, betaalwijze });
   if (res.ok) {
     closeModal('modal-betaling');
     activeTabId = null;
@@ -315,14 +310,12 @@ async function apiPost(data) {
   return api('', data, 'POST');
 }
 
-// Sluit modals bij klik buiten modal-box
 document.addEventListener('click', e => {
   if (e.target.classList.contains('modal')) {
     e.target.classList.add('hidden');
   }
 });
 
-// Enter bevestigt modals
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     if (!document.getElementById('modal-new-tab').classList.contains('hidden')) createTab();
