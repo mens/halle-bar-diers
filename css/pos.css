@@ -698,3 +698,75 @@ nav a.nav-active { color: var(--accent); }
   .logo-img { height: 28px; }
   .logo { font-size: 14px; gap: 7px; }
 }
+/* ── AUTH / USER TOPBAR ──────────────────────────────────────── */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.user-badge {
+  color: var(--text-dim);
+  font-size: 13px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-logout {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn-logout:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+/* ── GOOGLE SIGN-IN BUTTON ───────────────────────────────────── */
+.btn-google {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  color: #3c4043;
+  font-family: 'Roboto', var(--font-body), sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 4px;
+  text-decoration: none;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: box-shadow .15s, background .15s;
+  margin-top: 8px;
+}
+.btn-google:hover {
+  background: #f8f9fa;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+/* ── DELETE SHIFT BUTTON (rapport) ──────────────────────────── */
+.btn-icon-danger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  line-height: 1;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.btn-icon-danger:hover { background: rgba(185,64,64,0.2); }
+
+/* ── BADGE VARIANTS ──────────────────────────────────────────── */
+.badge-gray { background: var(--bg3); color: var(--text-dim); }
+.badge-blue { background: rgba(82,113,255,.15); color: var(--accent); }

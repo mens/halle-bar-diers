@@ -1,12 +1,20 @@
+<?php
+require_once 'auth.php';
+require_once 'db.php';
+requireRole('read');
+$user     = getUser();
+$canWrite = hasRole('write');
+?>
 <!DOCTYPE html>
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kantine — Beheer</title>
+<title>Kantine — Prijslijst Beheer</title>
 <link rel="stylesheet" href="css/pos.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Almendra:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -16,15 +24,22 @@
     <nav>
       <a href="index.php">Kassa</a>
       <a href="rapport.php">Rapporten</a>
-      <a href="admin.php" class="nav-active">Beheer</a>
+      <a href="admin.php" class="nav-active">Prijslijsten</a>
+      <?php if ($canWrite): ?><a href="users.php">Gebruikers</a><?php endif; ?>
     </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="user-badge"><?= htmlspecialchars($user['name']) ?></span>
+    <a href="logout.php" class="btn-logout">Uitloggen</a>
   </div>
 </header>
 
 <div class="admin-wrap">
   <div class="admin-header">
-    <h1>Drankenbeheer</h1>
-    <button class="btn-primary" onclick="openDrinkModal()">+ Nieuwe drank</button>
+    <h1>Beheer Prijslijsten<?php if (!$canWrite): ?> <span class="badge badge-blue" style="font-size:13px;vertical-align:middle;">Alleen lezen</span><?php endif; ?></h1>
+    <?php if ($canWrite): ?>
+      <button class="btn-primary" onclick="openDrinkModal()">+ Nieuwe drank</button>
+    <?php endif; ?>
   </div>
 
   <div class="admin-table-wrap">
@@ -37,17 +52,18 @@
           <th>💰 Training</th>
           <th>💰 Evenement</th>
           <th>Actief</th>
-          <th>Acties</th>
+          <?php if ($canWrite): ?><th>Acties</th><?php endif; ?>
         </tr>
       </thead>
       <tbody id="dranken-tbody">
-        <tr><td colspan="7" style="text-align:center;padding:20px;">Laden...</td></tr>
+        <tr><td colspan="<?= $canWrite ? 7 : 6 ?>" style="text-align:center;padding:20px;">Laden...</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
-<!-- Modal: drank bewerken/aanmaken -->
+<!-- Modal: drank bewerken/aanmaken (write only) -->
+<?php if ($canWrite): ?>
 <div id="modal-drank" class="modal hidden">
   <div class="modal-box modal-wide">
     <h3 id="modal-drank-title">Drank Toevoegen</h3>
@@ -95,16 +111,19 @@
     </div>
   </div>
 </div>
+<?php endif; ?>
 
 <div id="toast-container"></div>
 
 <script>
-// Laad alle dranken
+const CAN_WRITE = <?= $canWrite ? 'true' : 'false' ?>;
+
 async function loadDrinks() {
   const res = await api('get_alle_dranken', {}, 'GET');
+  const cols = CAN_WRITE ? 7 : 6;
   const tbody = document.getElementById('dranken-tbody');
   if (!res.ok || !res.dranken.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;">Geen dranken gevonden.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${cols}" style="text-align:center;padding:20px;">Geen dranken gevonden.</td></tr>`;
     return;
   }
   tbody.innerHTML = res.dranken.map(d => `
@@ -115,15 +134,16 @@ async function loadDrinks() {
       <td class="price-cell">${d.prijs_training ? '€ ' + parseFloat(d.prijs_training).toFixed(2) : '—'}</td>
       <td class="price-cell">${d.prijs_event   ? '€ ' + parseFloat(d.prijs_event).toFixed(2)   : '—'}</td>
       <td><span class="badge ${d.actief ? 'badge-green' : 'badge-red'}">${d.actief ? 'Ja' : 'Nee'}</span></td>
-      <td class="action-cell">
+      ${CAN_WRITE ? `<td class="action-cell">
         <button class="btn-sm btn-secondary" onclick="openDrinkModal(${JSON.stringify(d).replace(/"/g,'&quot;')})">✏️ Bewerken</button>
         ${d.actief ? `<button class="btn-sm btn-danger" onclick="deactivateDrink(${d.id})">🚫 Deactiveer</button>` : ''}
-      </td>
+      </td>` : ''}
     </tr>
   `).join('');
 }
 
 function openDrinkModal(d = null) {
+  if (!CAN_WRITE) return;
   document.getElementById('drank-id').value      = d ? d.id : 0;
   document.getElementById('drank-naam').value     = d ? d.naam : '';
   document.getElementById('drank-categorie').value= d ? d.categorie : '';
@@ -162,7 +182,7 @@ async function deactivateDrink(id) {
   if (res.ok) { toast('Drank gedeactiveerd', 'success'); loadDrinks(); }
 }
 
-// Shared helpers (duplicated for standalone page)
+// Shared helpers
 function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
@@ -180,11 +200,14 @@ async function api(action, params={}, method='POST') {
     : { method: 'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
         body: new URLSearchParams(params).toString() };
   const r = await fetch(url, opts);
+  if (r.status === 401) { window.location.href = '/login.php'; return {}; }
   return r.json();
 }
-async function apiPost(data) {
-  return api('', data, 'POST');
-}
+async function apiPost(data) { return api('', data, 'POST'); }
+
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal')) e.target.classList.add('hidden');
+});
 
 loadDrinks();
 </script>

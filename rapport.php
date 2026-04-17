@@ -1,3 +1,9 @@
+<?php
+require_once 'auth.php';
+requireRole('read');
+$user     = getUser();
+$canWrite = hasRole('write');
+?>
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -7,6 +13,8 @@
 <link rel="stylesheet" href="css/pos.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Almendra:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+</head>
 <body>
 
 <header class="topbar">
@@ -15,8 +23,13 @@
     <nav>
       <a href="index.php">Kassa</a>
       <a href="rapport.php" class="nav-active">Rapporten</a>
-      <a href="admin.php">Beheer</a>
+      <a href="admin.php">Prijslijsten</a>
+      <?php if ($canWrite): ?><a href="users.php">Gebruikers</a><?php endif; ?>
     </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="user-badge"><?= htmlspecialchars($user['name']) ?></span>
+    <a href="logout.php" class="btn-logout">Uitloggen</a>
   </div>
 </header>
 
@@ -33,6 +46,8 @@
 <div id="toast-container"></div>
 
 <script>
+const CAN_WRITE = <?= $canWrite ? 'true' : 'false' ?>;
+
 async function loadShifts() {
   const res = await api('get_shifts_lijst', {}, 'GET');
   const cont = document.getElementById('shifts-lijst');
@@ -44,7 +59,10 @@ async function loadShifts() {
     <div class="shift-row ${s.gesloten ? '' : 'shift-open-row'}" onclick="loadReport(${s.id})">
       <div class="shift-row-top">
         <strong>${esc(s.verantwoordelijke)}</strong>
-        <span class="badge ${s.gesloten ? 'badge-gray' : 'badge-green'}">${s.gesloten ? 'Gesloten' : 'Open'}</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="badge ${s.gesloten ? 'badge-gray' : 'badge-green'}">${s.gesloten ? 'Gesloten' : 'Open'}</span>
+          ${CAN_WRITE ? `<button class="btn-icon-danger" onclick="deleteShift(event, ${s.id})" title="Shift verwijderen">🗑</button>` : ''}
+        </div>
       </div>
       <div class="shift-row-meta">
         🕐 ${fmtDt(s.begintijd)} &nbsp;|&nbsp; 🏷️ ${esc(s.prijslijst)}
@@ -114,6 +132,19 @@ async function loadReport(shift_id) {
   `;
 }
 
+async function deleteShift(event, shiftId) {
+  event.stopPropagation();
+  if (!confirm('Shift en alle bijhorende data definitief verwijderen?')) return;
+  const res = await apiPost({ action: 'delete_shift', shift_id: shiftId });
+  if (res.ok) {
+    toast('Shift verwijderd.', 'success');
+    document.getElementById('rapport-detail').innerHTML = '<div class="empty-state"><p>← Selecteer een shift</p></div>';
+    loadShifts();
+  } else {
+    toast(res.error, 'error');
+  }
+}
+
 function fmtDt(s) {
   if (!s) return '';
   const d = new Date(s);
@@ -135,8 +166,10 @@ async function api(action, params={}, method='POST') {
     : { method: 'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
         body: new URLSearchParams(params).toString() };
   const r = await fetch(url, opts);
+  if (r.status === 401) { window.location.href = '/login.php'; return {}; }
   return r.json();
 }
+async function apiPost(data) { return api('', data, 'POST'); }
 
 loadShifts();
 </script>

@@ -1,3 +1,8 @@
+<?php
+require_once 'auth.php';
+requireAuth();
+$user = getUser();
+?>
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -17,10 +22,15 @@
     <nav>
       <a href="index.php" class="nav-active">Kassa</a>
       <a href="rapport.php">Rapporten</a>
-      <a href="admin.php">Beheer</a>
+      <a href="admin.php">Prijslijsten</a>
+      <?php if (hasRole('write')): ?><a href="users.php">Gebruikers</a><?php endif; ?>
     </nav>
   </div>
   <div id="shift-status" class="shift-badge shift-none">Geen actieve shift</div>
+  <div class="topbar-right">
+    <span class="user-badge"><?= htmlspecialchars($user['name']) ?></span>
+    <a href="logout.php" class="btn-logout">Uitloggen</a>
+  </div>
 </header>
 
 <!-- GEEN SHIFT: start scherm -->

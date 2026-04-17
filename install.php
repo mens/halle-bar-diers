@@ -64,6 +64,12 @@ $queries = [
         tijdstip DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tab_id) REFERENCES tabs(id) ON DELETE CASCADE
     )",
+
+    "CREATE TABLE IF NOT EXISTS user_roles (
+        email      VARCHAR(255) NOT NULL PRIMARY KEY,
+        role       ENUM('read','write') NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )",
 ];
 
 $errors = [];
@@ -120,7 +126,7 @@ foreach ($samples as [$naam, $cat, $volgorde, $p_training, $p_event]) {
 <h2>🍺 Kantine POS — Installatie</h2>
 <?php if (empty($errors)): ?>
 <p style="color:green;font-weight:bold;">✅ Database succesvol aangemaakt! Voorbeelddranken geladen.</p>
-<p><a href="index.php">→ Naar de kassa</a> | <a href="admin.php">→ Beheer</a></p>
+<p><a href="index.php">→ Naar de kassa</a> | <a href="admin.php">→ Beheer Prijslijsten</a></p>
 <?php else: ?>
 <p style="color:red;">❌ Fouten:</p>
 <ul><?php foreach($errors as $e): ?><li><?= htmlspecialchars($e) ?></li><?php endforeach; ?></ul>

@@ -45,3 +45,22 @@ All business logic lives in `api.php` (switch/case on `action` parameter), which
 - XSS protection via `esc()` helper in `pos.js`
 - Dutch language for all UI text and comments; function/variable names are English
 - Function naming: camelCase English (`loadDrinks`, `showPosScreen`, `closeShift`)
+
+## Authentication & Authorization
+
+Google Workspace OAuth 2.0. All pages require a valid session. Credentials live in `config.php` (not committed with real values).
+
+**Auth flow:** `login.php?google=1` → Google → `oauth_callback.php` → session → redirect. The `hd` claim in the userinfo response is verified against `GOOGLE_WORKSPACE_DOMAIN`. Session stores `['email', 'name', 'role']`.
+
+**Roles** (stored in `user_roles` DB table):
+- No role: kassa only
+- `read`: kassa + view reports + view price lists
+- `write`: everything + delete shifts + modify price lists
+
+**Guards:**
+- `requireAuth()` — any authenticated user (used in `index.php`)
+- `requireRole('read')` — read or write role (used in `rapport.php`, `admin.php`)
+- `requireRole('write')` — write role only (used in `users.php`)
+- `api.php` enforces the same role checks server-side for every action
+
+**Setup:** Run `migrate_auth.php` once to create the `user_roles` table, then delete it. Add initial users via `users.php` (requires a write-role user in the DB first — seed manually with `INSERT INTO user_roles (email, role) VALUES ('you@domain.be', 'write')`).

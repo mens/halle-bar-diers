@@ -1,6 +1,7 @@
 <?php
 // api.php — AJAX API endpoint
 require_once 'db.php';
+require_once 'auth.php';
 header('Content-Type: application/json; charset=utf-8');
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -9,11 +10,21 @@ function jsonOk($data = []) {
     echo json_encode(['ok' => true] + $data);
     exit;
 }
-function jsonErr($msg) {
-    http_response_code(400);
+function jsonErr($msg, int $code = 400) {
+    http_response_code($code);
     echo json_encode(['ok' => false, 'error' => $msg]);
     exit;
 }
+
+// Auth guard — all API calls require a valid session
+if (!getUser()) jsonErr('Niet ingelogd.', 401);
+
+// Role guards
+$writeActions = ['save_drank', 'delete_drank', 'delete_shift'];
+$readActions  = ['get_alle_dranken', 'get_shifts_lijst', 'get_shift_rapport'];
+
+if (in_array($action, $writeActions) && !hasRole('write')) jsonErr('Geen schrijfrechten.', 403);
+if (in_array($action, $readActions)  && !hasRole('read'))  jsonErr('Geen leesrechten.', 403);
 
 switch ($action) {
 
@@ -22,7 +33,6 @@ switch ($action) {
         $naam = trim($_POST['verantwoordelijke'] ?? '');
         $lijst_id = (int)($_POST['prijslijst_id'] ?? 1);
         if (!$naam) jsonErr('Naam verantwoordelijke is verplicht.');
-        // Check geen open shift
         $open = $pdo->query("SELECT id FROM shifts WHERE gesloten = 0 LIMIT 1")->fetch();
         if ($open) jsonErr('Er is al een open shift (ID ' . $open['id'] . '). Sluit deze eerst.');
         $stmt = $pdo->prepare("INSERT INTO shifts (verantwoordelijke, prijslijst_id) VALUES (?, ?)");
@@ -36,7 +46,6 @@ switch ($action) {
              WHERE s.gesloten = 0 ORDER BY s.begintijd DESC LIMIT 1"
         )->fetch();
         if (!$shift) jsonOk(['shift' => null]);
-        // Laad open tabs
         $tabs = $pdo->prepare(
             "SELECT t.*, COALESCE(SUM(r.prijs * r.aantal),0) AS subtotaal,
                     COUNT(r.id) AS aantal_regels
@@ -52,12 +61,17 @@ switch ($action) {
         $shift_id = (int)($_POST['shift_id'] ?? 0);
         $opmerking = trim($_POST['opmerking'] ?? '');
         if (!$shift_id) jsonErr('Geen shift ID opgegeven.');
-        // Check open tabs
         $open_tabs = $pdo->prepare("SELECT COUNT(*) FROM tabs WHERE shift_id = ? AND betaald = 0");
         $open_tabs->execute([$shift_id]);
         if ($open_tabs->fetchColumn() > 0) jsonErr('Er zijn nog onbetaalde tabs. Verwerk deze eerst.');
         $pdo->prepare("UPDATE shifts SET gesloten = 1, eindtijd = NOW(), opmerking = ? WHERE id = ?")
             ->execute([$opmerking ?: null, $shift_id]);
+        jsonOk();
+
+    case 'delete_shift':
+        $shift_id = (int)($_POST['shift_id'] ?? 0);
+        if (!$shift_id) jsonErr('Geen shift ID.');
+        $pdo->prepare("DELETE FROM shifts WHERE id = ?")->execute([$shift_id]);
         jsonOk();
 
     // ── TABS ───────────────────────────────────────────────────────────────
@@ -91,7 +105,6 @@ switch ($action) {
         $drank_id = (int)($_POST['drank_id'] ?? 0);
         $aantal   = max(1, (int)($_POST['aantal'] ?? 1));
         if (!$tab_id || !$drank_id) jsonErr('Tab en drank zijn verplicht.');
-        // Haal prijs op via shift prijslijst
         $info = $pdo->prepare(
             "SELECT d.naam, p.prijs
              FROM dranken d
@@ -104,7 +117,6 @@ switch ($action) {
         $info->execute([$tab_id, $drank_id]);
         $drank = $info->fetch();
         if (!$drank) jsonErr('Drank niet beschikbaar voor deze prijslijst.');
-        // Check of al in tab (zelfde prijs), dan aanpassen
         $existing = $pdo->prepare(
             "SELECT id, aantal FROM tab_regels WHERE tab_id = ? AND drank_id = ? AND prijs = ?"
         );
@@ -117,7 +129,6 @@ switch ($action) {
             $pdo->prepare("INSERT INTO tab_regels (tab_id, drank_id, drank_naam, prijs, aantal) VALUES (?,?,?,?,?)")
                 ->execute([$tab_id, $drank_id, $drank['naam'], $drank['prijs'], $aantal]);
         }
-        // Update totaal op tab
         $pdo->prepare("UPDATE tabs SET totaal = (SELECT COALESCE(SUM(prijs*aantal),0) FROM tab_regels WHERE tab_id=?) WHERE id=?")
             ->execute([$tab_id, $tab_id]);
         jsonOk(['naam' => $drank['naam'], 'prijs' => $drank['prijs']]);
@@ -145,7 +156,7 @@ switch ($action) {
         jsonOk();
 
     case 'betaal_tab':
-        $tab_id     = (int)($_POST['tab_id']     ?? 0);
+        $tab_id      = (int)($_POST['tab_id']     ?? 0);
         $betaalwijze = $_POST['betaalwijze'] ?? '';
         if (!in_array($betaalwijze, ['cash', 'payconiq'])) jsonErr('Ongeldige betaalwijze.');
         $pdo->prepare("UPDATE tabs SET betaald=1, gesloten=NOW(), betaalwijze=? WHERE id=?")
