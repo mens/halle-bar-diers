@@ -82,7 +82,21 @@ async function loadReport(shift_id) {
 
   const cash     = res.financieel.find(f => f.betaalwijze === 'cash')     || {bedrag:0, tabs:0};
   const payconiq = res.financieel.find(f => f.betaalwijze === 'payconiq') || {bedrag:0, tabs:0};
+  const gratis   = res.financieel.find(f => f.betaalwijze === 'gratis')   || {bedrag:0, tabs:0, redenen: null};
   const totaal   = parseFloat(cash.bedrag||0) + parseFloat(payconiq.bedrag||0);
+
+  const gratisRedenen = gratis.redenen ? JSON.parse(gratis.redenen) : [];
+  const gratisBox = parseFloat(gratis.bedrag||0) > 0 ? `
+    <div class="money-box money-gratis">
+      <div class="money-label">🎁 Gratis</div>
+      <div class="money-amount">€ ${parseFloat(gratis.bedrag||0).toFixed(2)}</div>
+      <div class="money-tabs">${gratis.tabs} tabs</div>
+    </div>` : '';
+  const gratisRedenenBlock = gratisRedenen.length ? `
+    <div class="rapport-gratis-redenen">
+      <strong>🎁 Redenen gratis</strong>
+      <ul>${gratisRedenen.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+    </div>` : '';
 
   document.getElementById('rapport-detail').innerHTML = `
     <div class="rapport-card">
@@ -105,12 +119,14 @@ async function loadReport(shift_id) {
           <div class="money-amount">€ ${parseFloat(payconiq.bedrag||0).toFixed(2)}</div>
           <div class="money-tabs">${payconiq.tabs} tabs</div>
         </div>
+        ${gratisBox}
         <div class="money-box money-total">
-          <div class="money-label">TOTAAL</div>
+          <div class="money-label">TOTAAL ONTVANGEN</div>
           <div class="money-amount">€ ${totaal.toFixed(2)}</div>
         </div>
       </div>
 
+      ${gratisRedenenBlock}
       ${s.opmerking ? `<div class="rapport-opmerking"><strong>📝 Opmerking:</strong> ${esc(s.opmerking)}</div>` : ''}
 
       <h3>Verkoop per drank</h3>
@@ -120,7 +136,7 @@ async function loadReport(shift_id) {
         <tbody>
           ${res.verkoop.map(v => `
             <tr>
-              <td>${esc(v.drank_naam)}</td>
+              <td class="left">${esc(v.drank_naam)}</td>
               <td class="center">${v.totaal_stuks}</td>
               <td class="price-cell">€ ${parseFloat(v.totaal_bedrag).toFixed(2)}</td>
             </tr>

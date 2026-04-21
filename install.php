@@ -66,6 +66,25 @@ $queries = [
         FOREIGN KEY (tab_id) REFERENCES tabs(id) ON DELETE CASCADE
     )",
 
+    "CREATE TABLE IF NOT EXISTS shift_verkoop (
+        id        INT AUTO_INCREMENT PRIMARY KEY,
+        shift_id  INT NOT NULL,
+        drank_naam VARCHAR(150) NOT NULL,
+        prijs     DECIMAL(6,2) NOT NULL,
+        aantal    INT NOT NULL,
+        bedrag    DECIMAL(8,2) NOT NULL,
+        FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
+    )",
+
+    "CREATE TABLE IF NOT EXISTS shift_financieel (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        shift_id    INT NOT NULL,
+        betaalwijze ENUM('cash','payconiq') NOT NULL,
+        bedrag      DECIMAL(8,2) NOT NULL,
+        aantal_tabs INT NOT NULL,
+        FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
+    )",
+
     "CREATE TABLE IF NOT EXISTS user_roles (
         email      VARCHAR(255) NOT NULL PRIMARY KEY,
         role       ENUM('read','write') NOT NULL,

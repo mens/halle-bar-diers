@@ -1,4 +1,6 @@
 <?php
+session_set_cookie_params(['lifetime' => 7200]);
+ini_set('session.gc_maxlifetime', 7200);
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 function getUser(): ?array {

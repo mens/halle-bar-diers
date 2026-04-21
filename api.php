@@ -107,14 +107,59 @@ switch ($action) {
         jsonOk(['shift' => $shift]);
 
     case 'close_shift':
-        $shift_id = (int)($_POST['shift_id'] ?? 0);
+        $shift_id  = (int)($_POST['shift_id'] ?? 0);
         $opmerking = trim($_POST['opmerking'] ?? '');
         if (!$shift_id) jsonErr('Geen shift ID opgegeven.');
+
         $open_tabs = $pdo->prepare("SELECT COUNT(*) FROM tabs WHERE shift_id = ? AND betaald = 0");
         $open_tabs->execute([$shift_id]);
         if ($open_tabs->fetchColumn() > 0) jsonErr('Er zijn nog onbetaalde tabs. Verwerk deze eerst.');
-        $pdo->prepare("UPDATE shifts SET gesloten = 1, eindtijd = NOW(), opmerking = ? WHERE id = ?")
-            ->execute([$opmerking ?: null, $shift_id]);
+
+        // Persist aggregated drink sales at the prices that were charged
+        $pdo->prepare(
+            "INSERT INTO shift_verkoop (shift_id, drank_naam, prijs, aantal, bedrag)
+             SELECT t.shift_id, r.drank_naam, r.prijs, SUM(r.aantal), SUM(r.prijs * r.aantal)
+             FROM tab_regels r
+             JOIN tabs t ON t.id = r.tab_id
+             WHERE t.shift_id = ?
+             GROUP BY r.drank_naam, r.prijs"
+        )->execute([$shift_id]);
+
+        // Persist financial totals per payment method (with reasons for gratis tabs)
+        $fin_stmt = $pdo->prepare(
+            "SELECT betaalwijze, SUM(totaal) AS bedrag, COUNT(*) AS aantal_tabs
+             FROM tabs WHERE shift_id = ? AND betaald = 1 GROUP BY betaalwijze"
+        );
+        $fin_stmt->execute([$shift_id]);
+        $fin_rows = $fin_stmt->fetchAll();
+
+        $red_stmt = $pdo->prepare(
+            "SELECT reden FROM tabs
+             WHERE shift_id = ? AND betaalwijze = 'gratis' AND betaald = 1
+               AND reden IS NOT NULL AND reden != ''"
+        );
+        $red_stmt->execute([$shift_id]);
+        $gratis_redenen = $red_stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        $ins = $pdo->prepare(
+            "INSERT INTO shift_financieel (shift_id, betaalwijze, bedrag, aantal_tabs, redenen)
+             VALUES (?,?,?,?,?)"
+        );
+        foreach ($fin_rows as $row) {
+            $redenen_json = ($row['betaalwijze'] === 'gratis' && !empty($gratis_redenen))
+                            ? json_encode(array_values($gratis_redenen))
+                            : null;
+            $ins->execute([$shift_id, $row['betaalwijze'], $row['bedrag'], $row['aantal_tabs'], $redenen_json]);
+        }
+
+        // Remove all tab data (tab_regels cascade-deleted with tabs)
+        $pdo->prepare("DELETE FROM tabs WHERE shift_id = ?")->execute([$shift_id]);
+
+        // Close shift and wipe the password
+        $pdo->prepare(
+            "UPDATE shifts SET gesloten = 1, eindtijd = NOW(), opmerking = ?, password_hash = NULL WHERE id = ?"
+        )->execute([$opmerking ?: null, $shift_id]);
+
         unset($_SESSION['shift_auth']);
         jsonOk();
 
@@ -123,7 +168,9 @@ switch ($action) {
         $betaalwijze = $_POST['betaalwijze'] ?? '';
         $items       = json_decode($_POST['items'] ?? '[]', true);
         if (!$shift_id) jsonErr('Geen shift ID.');
-        if (!in_array($betaalwijze, ['cash', 'payconiq'])) jsonErr('Ongeldige betaalwijze.');
+        $reden = trim($_POST['reden'] ?? '');
+        if (!in_array($betaalwijze, ['cash', 'payconiq', 'gratis'])) jsonErr('Ongeldige betaalwijze.');
+        if ($betaalwijze === 'gratis' && !$reden) jsonErr('Geef een reden op voor de gratis betaling.');
         if (empty($items) || !is_array($items)) jsonErr('Voeg minstens één drank toe.');
 
         $shift = $pdo->prepare("SELECT id, prijslijst_id FROM shifts WHERE id = ? AND gesloten = 0");
@@ -158,8 +205,8 @@ switch ($action) {
             jsonErr('Geen geldige dranken opgegeven.');
         }
 
-        $pdo->prepare("UPDATE tabs SET betaald=1, gesloten=NOW(), betaalwijze=?, totaal=? WHERE id=?")
-            ->execute([$betaalwijze, $totaal, $tab_id]);
+        $pdo->prepare("UPDATE tabs SET betaald=1, gesloten=NOW(), betaalwijze=?, totaal=?, reden=? WHERE id=?")
+            ->execute([$betaalwijze, $totaal, $reden ?: null, $tab_id]);
         jsonOk(['totaal' => $totaal]);
 
     case 'delete_shift':
@@ -252,9 +299,11 @@ switch ($action) {
     case 'betaal_tab':
         $tab_id      = (int)($_POST['tab_id']     ?? 0);
         $betaalwijze = $_POST['betaalwijze'] ?? '';
-        if (!in_array($betaalwijze, ['cash', 'payconiq'])) jsonErr('Ongeldige betaalwijze.');
-        $pdo->prepare("UPDATE tabs SET betaald=1, gesloten=NOW(), betaalwijze=? WHERE id=?")
-            ->execute([$betaalwijze, $tab_id]);
+        $reden       = trim($_POST['reden'] ?? '');
+        if (!in_array($betaalwijze, ['cash', 'payconiq', 'gratis'])) jsonErr('Ongeldige betaalwijze.');
+        if ($betaalwijze === 'gratis' && !$reden) jsonErr('Geef een reden op voor de gratis betaling.');
+        $pdo->prepare("UPDATE tabs SET betaald=1, gesloten=NOW(), betaalwijze=?, reden=? WHERE id=?")
+            ->execute([$betaalwijze, $reden ?: null, $tab_id]);
         jsonOk();
 
     case 'delete_tab':
@@ -327,39 +376,82 @@ switch ($action) {
         if (!$shift) jsonErr('Shift niet gevonden.');
         unset($shift['password_hash']);
 
-        $verkoop = $pdo->prepare(
-            "SELECT r.drank_naam, SUM(r.aantal) AS totaal_stuks,
-                    SUM(r.prijs * r.aantal) AS totaal_bedrag
-             FROM tab_regels r
-             JOIN tabs t ON t.id = r.tab_id
-             WHERE t.shift_id = ?
-             GROUP BY r.drank_naam ORDER BY totaal_stuks DESC"
-        );
-        $verkoop->execute([$shift_id]);
+        if ($shift['gesloten']) {
+            // Closed shift: read from static summary tables
+            $s = $pdo->prepare(
+                "SELECT drank_naam, SUM(aantal) AS totaal_stuks, SUM(bedrag) AS totaal_bedrag
+                 FROM shift_verkoop WHERE shift_id = ?
+                 GROUP BY drank_naam ORDER BY totaal_stuks DESC"
+            );
+            $s->execute([$shift_id]);
+            $verkoop_data = $s->fetchAll();
 
-        $financieel = $pdo->prepare(
-            "SELECT betaalwijze, SUM(totaal) AS bedrag, COUNT(*) AS tabs
-             FROM tabs WHERE shift_id = ? AND betaald = 1
-             GROUP BY betaalwijze"
-        );
-        $financieel->execute([$shift_id]);
+            $s = $pdo->prepare(
+                "SELECT betaalwijze, bedrag, aantal_tabs AS tabs, redenen
+                 FROM shift_financieel WHERE shift_id = ?"
+            );
+            $s->execute([$shift_id]);
+            $fin_data = $s->fetchAll();
+        } else {
+            // Open shift: read live from tab data
+            $s = $pdo->prepare(
+                "SELECT r.drank_naam, SUM(r.aantal) AS totaal_stuks,
+                        SUM(r.prijs * r.aantal) AS totaal_bedrag
+                 FROM tab_regels r
+                 JOIN tabs t ON t.id = r.tab_id
+                 WHERE t.shift_id = ?
+                 GROUP BY r.drank_naam ORDER BY totaal_stuks DESC"
+            );
+            $s->execute([$shift_id]);
+            $verkoop_data = $s->fetchAll();
+
+            $s = $pdo->prepare(
+                "SELECT betaalwijze, SUM(totaal) AS bedrag, COUNT(*) AS tabs
+                 FROM tabs WHERE shift_id = ? AND betaald = 1 GROUP BY betaalwijze"
+            );
+            $s->execute([$shift_id]);
+            $fin_data = $s->fetchAll();
+
+            $red_stmt = $pdo->prepare(
+                "SELECT reden FROM tabs
+                 WHERE shift_id = ? AND betaalwijze = 'gratis' AND betaald = 1
+                   AND reden IS NOT NULL AND reden != ''"
+            );
+            $red_stmt->execute([$shift_id]);
+            $gratis_redenen = $red_stmt->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($fin_data as &$row) {
+                $row['redenen'] = ($row['betaalwijze'] === 'gratis' && !empty($gratis_redenen))
+                                  ? json_encode(array_values($gratis_redenen))
+                                  : null;
+            }
+            unset($row);
+        }
 
         jsonOk([
             'shift'      => $shift,
-            'verkoop'    => $verkoop->fetchAll(),
-            'financieel' => $financieel->fetchAll(),
+            'verkoop'    => $verkoop_data,
+            'financieel' => $fin_data,
         ]);
 
     case 'get_shifts_lijst':
+        // Closed shifts: totals from static summary tables.
+        // Open shifts: the summary tables are empty, so COALESCE falls back to live tab data.
         $shifts = $pdo->query(
             "SELECT s.id, s.verantwoordelijke, s.begintijd, s.eindtijd, s.gesloten,
                     p.naam AS prijslijst,
-                    COALESCE(SUM(t.totaal),0) AS omzet,
-                    COUNT(DISTINCT t.id) AS aantal_tabs
+                    COALESCE(
+                        (SELECT SUM(sf.bedrag)      FROM shift_financieel sf WHERE sf.shift_id = s.id),
+                        (SELECT SUM(t.totaal)        FROM tabs t WHERE t.shift_id = s.id AND t.betaald = 1),
+                        0
+                    ) AS omzet,
+                    COALESCE(
+                        (SELECT SUM(sf.aantal_tabs)  FROM shift_financieel sf WHERE sf.shift_id = s.id),
+                        (SELECT COUNT(*)              FROM tabs t WHERE t.shift_id = s.id AND t.betaald = 1),
+                        0
+                    ) AS aantal_tabs
              FROM shifts s
              JOIN prijslijsten p ON p.id = s.prijslijst_id
-             LEFT JOIN tabs t ON t.shift_id = s.id AND t.betaald = 1
-             GROUP BY s.id ORDER BY s.begintijd DESC LIMIT 50"
+             ORDER BY s.begintijd DESC LIMIT 50"
         )->fetchAll();
         jsonOk(['shifts' => $shifts]);
 

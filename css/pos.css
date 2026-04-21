@@ -258,6 +258,7 @@ nav a.nav-active { color: var(--accent); }
   display: grid;
   grid-template-columns: 220px 1fr 300px;
   height: calc(100vh - 52px);
+  height: calc(100dvh - 52px);
   overflow: hidden;
 }
 
@@ -313,6 +314,7 @@ nav a.nav-active { color: var(--accent); }
 .shift-footer {
   padding: 10px 14px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 /* ── TAB DETAIL (midden) ────────────────────────────────────── */
@@ -679,9 +681,14 @@ nav a.nav-active { color: var(--accent); }
 .rapport-topinfo h2 { font-family: var(--font-head); font-size: 28px; font-weight: 900; }
 .rapport-topinfo .dim { font-size: 13px; color: var(--text-dim); }
 
-.rapport-money { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+.rapport-money { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .money-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; }
-.money-box.money-total { border-color: var(--accent); }
+.money-box.money-total { border-color: var(--accent); grid-column: 1 / -1; }
+.money-box.money-gratis { border-color: var(--green); }
+.money-box.money-gratis .money-amount { color: var(--green); }
+.rapport-gratis-redenen { margin: -8px 0 20px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--green); border-radius: var(--radius); font-size: 14px; }
+.rapport-gratis-redenen strong { color: var(--green); display: block; margin-bottom: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+.rapport-gratis-redenen ul { margin: 0; padding-left: 18px; color: var(--text-dim); }
 .money-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-dim); margin-bottom: 6px; }
 .money-amount { font-family: var(--font-head); font-size: 28px; font-weight: 900; color: var(--accent); }
 .money-tabs { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
@@ -706,7 +713,8 @@ nav a.nav-active { color: var(--accent); }
 .rapport-table th { background: var(--bg3); padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-dim); }
 .rapport-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 14px; }
 .rapport-table tfoot th { padding: 12px 14px; font-size: 15px; color: var(--text); }
-.rapport-table .center { text-align: center; }
+.rapport-table .center { text-align: center; color: var(--accent-h);}
+.rapport-table .left { text-align: left; color: var(--accent-h);}
 .dim { color: var(--text-dim); }
 
 /* ── RESPONSIVE ─────────────────────────────────────────────── */
@@ -718,28 +726,42 @@ nav a.nav-active { color: var(--accent); }
     overflow: visible;
   }
   .tabs-panel {
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
     max-height: none;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    overflow-x: auto;
+  }
+  .tabs-panel .panel-header {
+    grid-column: 1;
+    grid-row: 1;
+    border-bottom: none;
+  }
+  .tabs-panel .shift-footer {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 8px;
+    align-self: center;
+    border-top: none;
+    border-left: 1px solid var(--border);
   }
   .tabs-list {
+    grid-column: 1 / -1;
+    grid-row: 2;
     flex-direction: row;
-    flex: 1;
     overflow-x: auto;
     overflow-y: visible;
     padding: 8px;
     gap: 6px;
+    border-top: 1px solid var(--border);
   }
   .tab-item { min-width: 130px; flex-shrink: 0; }
-  .shift-footer { padding: 8px; flex-shrink: 0; align-self: center; }
   .tab-detail { min-height: 300px; }
   .drinks-panel { border-left: none; border-top: 1px solid var(--border); max-height: 320px; }
   .rapport-wrap { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .rapport-left { max-height: 280px; }
   .rapport-money { grid-template-columns: 1fr 1fr; }
-  .money-box.money-total { grid-column: 1 / -1; }
   .form-grid { grid-template-columns: 1fr; }
 }
 

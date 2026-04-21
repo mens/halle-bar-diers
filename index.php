@@ -147,13 +147,21 @@ $isWrite = hasRole('write');
           <div style="font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px;">Betaalwijze</div>
           <div class="radio-group">
             <label class="radio-card">
-              <input type="radio" name="ds-betaalwijze" value="cash" checked>
+              <input type="radio" name="ds-betaalwijze" value="cash" checked onchange="toggleRedenField('ds-betaalwijze','ds-gratis-reden-group')">
               <span>💵 Cash</span>
             </label>
             <label class="radio-card">
-              <input type="radio" name="ds-betaalwijze" value="payconiq">
+              <input type="radio" name="ds-betaalwijze" value="payconiq" onchange="toggleRedenField('ds-betaalwijze','ds-gratis-reden-group')">
               <span>📱 Payconiq</span>
             </label>
+            <label class="radio-card">
+              <input type="radio" name="ds-betaalwijze" value="gratis" onchange="toggleRedenField('ds-betaalwijze','ds-gratis-reden-group')">
+              <span>🎁 Gratis</span>
+            </label>
+          </div>
+          <div id="ds-gratis-reden-group" class="form-group hidden" style="margin-top:8px;">
+            <label>Reden <span class="req">*</span></label>
+            <input type="text" id="inp-ds-gratis-reden" placeholder="Waarom gratis?" autocomplete="off">
           </div>
         </div>
         <button id="btn-ds-pay" class="btn-primary btn-xl" onclick="confirmDirectSale()" disabled>✓ Betalen</button>
@@ -188,13 +196,21 @@ $isWrite = hasRole('write');
     <p class="betaling-vraag">Betaalwijze:</p>
     <div class="radio-group">
       <label class="radio-card">
-        <input type="radio" name="betaalwijze" value="cash" checked>
+        <input type="radio" name="betaalwijze" value="cash" checked onchange="toggleRedenField('betaalwijze','gratis-reden-group')">
         <span>💵 Cash</span>
       </label>
       <label class="radio-card">
-        <input type="radio" name="betaalwijze" value="payconiq">
+        <input type="radio" name="betaalwijze" value="payconiq" onchange="toggleRedenField('betaalwijze','gratis-reden-group')">
         <span>📱 Payconiq</span>
       </label>
+      <label class="radio-card">
+        <input type="radio" name="betaalwijze" value="gratis" onchange="toggleRedenField('betaalwijze','gratis-reden-group')">
+        <span>🎁 Gratis</span>
+      </label>
+    </div>
+    <div id="gratis-reden-group" class="form-group hidden" style="margin-top:12px;">
+      <label>Reden <span class="req">*</span></label>
+      <input type="text" id="inp-gratis-reden" placeholder="Waarom gratis?" autocomplete="off">
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-betaling')">Annuleer</button>

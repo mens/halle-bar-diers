@@ -278,6 +278,9 @@ let directSaleCart = {}; // drank_id → {naam, prijs, aantal}
 
 function openDirectSaleModal() {
   directSaleCart = {};
+  document.querySelector('input[name="ds-betaalwijze"][value="cash"]').checked = true;
+  document.getElementById('inp-ds-gratis-reden').value = '';
+  document.getElementById('ds-gratis-reden-group').classList.add('hidden');
   renderDirectSaleDrinks();
   renderDirectSaleCart();
   openModal('modal-direct-sale');
@@ -355,16 +358,19 @@ async function confirmDirectSale() {
   const items = Object.entries(directSaleCart);
   if (!items.length) return;
   const betaalwijze = document.querySelector('input[name="ds-betaalwijze"]:checked')?.value;
+  const reden = betaalwijze === 'gratis' ? document.getElementById('inp-ds-gratis-reden').value.trim() : '';
+  if (betaalwijze === 'gratis' && !reden) { toast('Voer een reden in voor de gratis betaling.', 'error'); return; }
   const payload = items.map(([id, item]) => ({ drank_id: parseInt(id), aantal: item.aantal }));
   const res = await apiPost({
     action: 'direct_sale',
     shift_id: activeShift.id,
     betaalwijze,
+    reden,
     items: JSON.stringify(payload)
   });
   if (res.ok) {
     closeModal('modal-direct-sale');
-    const label = betaalwijze === 'cash' ? 'cash 💵' : 'Payconiq 📱';
+    const label = betaalwijze === 'cash' ? 'cash 💵' : betaalwijze === 'payconiq' ? 'Payconiq 📱' : 'gratis 🎁';
     toast(`Verkoop € ${parseFloat(res.totaal).toFixed(2)} — ${label}`, 'success');
   } else {
     toast(res.error, 'error');
@@ -389,6 +395,13 @@ async function updateQuantity(lineItemId, tabId, newQuantity) {
 }
 
 // ── PAYMENT ───────────────────────────────────────────────────
+function toggleRedenField(radioName, groupId) {
+  const isGratis = document.querySelector(`input[name="${radioName}"]:checked`)?.value === 'gratis';
+  const group = document.getElementById(groupId);
+  group.classList.toggle('hidden', !isGratis);
+  if (isGratis) group.querySelector('input[type="text"]').focus();
+}
+
 async function openPaymentModal(tabId) {
   paymentTabId = tabId;
   const res = await api(`get_tab&tab_id=${tabId}`, {}, 'GET');
@@ -400,18 +413,23 @@ async function openPaymentModal(tabId) {
     `<div class="regel"><span>${esc(r.drank_naam)} × ${r.aantal}</span><span>€ ${(r.prijs * r.aantal).toFixed(2)}</span></div>`
   ).join('') + `<div class="regel regel-total"><span>TOTAAL</span><span>€ ${totaal.toFixed(2)}</span></div>`;
   document.querySelector('input[name="betaalwijze"][value="cash"]').checked = true;
+  document.getElementById('inp-gratis-reden').value = '';
+  document.getElementById('gratis-reden-group').classList.add('hidden');
   openModal('modal-betaling');
 }
 
 async function confirmPayment() {
   const betaalwijze = document.querySelector('input[name="betaalwijze"]:checked')?.value;
   if (!betaalwijze) { toast('Kies een betaalwijze.', 'error'); return; }
-  const res = await apiPost({ action: 'betaal_tab', tab_id: paymentTabId, betaalwijze });
+  const reden = betaalwijze === 'gratis' ? document.getElementById('inp-gratis-reden').value.trim() : '';
+  if (betaalwijze === 'gratis' && !reden) { toast('Voer een reden in voor de gratis betaling.', 'error'); return; }
+  const res = await apiPost({ action: 'betaal_tab', tab_id: paymentTabId, betaalwijze, reden });
   if (res.ok) {
     closeModal('modal-betaling');
     activeTabId = null;
     document.getElementById('tab-detail').innerHTML = '<div class="empty-state"><p>👈 Selecteer of maak een tab aan</p></div>';
-    toast(`Betaald via ${betaalwijze === 'cash' ? 'cash 💵' : 'Payconiq 📱'}`, 'success');
+    const label = betaalwijze === 'cash' ? 'cash 💵' : betaalwijze === 'payconiq' ? 'Payconiq 📱' : 'gratis 🎁';
+    toast(`Betaald via ${label}`, 'success');
     await refreshTabs();
   } else {
     toast(res.error, 'error');
